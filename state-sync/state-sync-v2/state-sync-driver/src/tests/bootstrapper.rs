@@ -25,12 +25,11 @@ use aptos_types::{
     transaction::{TransactionOutputListWithProof, Version},
     waypoint::Waypoint,
 };
-use claim::{assert_matches, assert_none, assert_ok};
+use claim::assert_matches;
 use data_streaming_service::{
     data_notification::{DataNotification, DataPayload},
     streaming_client::NotificationFeedback,
 };
-use futures::{channel::oneshot, FutureExt};
 use mockall::{predicate::eq, Sequence};
 use std::sync::Arc;
 
@@ -46,12 +45,6 @@ async fn test_bootstrap_genesis_waypoint() {
     let mut bootstrapper = create_bootstrapper(driver_configuration, mock_streaming_client, true);
     assert!(!bootstrapper.is_bootstrapped());
 
-    // Subscribe to a bootstrapped notification
-    let (bootstrap_notification_sender, bootstrap_notification_receiver) = oneshot::channel();
-    bootstrapper
-        .subscribe_to_bootstrap_notifications(bootstrap_notification_sender)
-        .unwrap();
-
     // Create a global data summary where only epoch 0 has ended
     let global_data_summary = create_global_summary(0);
 
@@ -60,75 +53,12 @@ async fn test_bootstrap_genesis_waypoint() {
         .await
         .unwrap();
     assert!(bootstrapper.is_bootstrapped());
-    verify_bootstrap_notification(bootstrap_notification_receiver);
 
     // Drive progress again and verify we get an error (we're already bootstrapped!)
     let error = drive_progress(&mut bootstrapper, &global_data_summary, false)
         .await
         .unwrap_err();
     assert_matches!(error, Error::AlreadyBootstrapped(_));
-}
-
-#[tokio::test]
-async fn test_bootstrap_immediate_notification() {
-    // Create a driver configuration with a genesis waypoint
-    let driver_configuration = create_full_node_driver_configuration();
-
-    // Create the mock streaming client
-    let mock_streaming_client = create_mock_streaming_client();
-
-    // Create the bootstrapper
-    let mut bootstrapper = create_bootstrapper(driver_configuration, mock_streaming_client, true);
-
-    // Create a global data summary where only epoch 0 has ended
-    let global_data_summary = create_global_summary(0);
-
-    // Drive progress and verify we're now bootstrapped
-    drive_progress(&mut bootstrapper, &global_data_summary, true)
-        .await
-        .unwrap();
-    assert!(bootstrapper.is_bootstrapped());
-
-    // Subscribe to a bootstrapped notification and verify immediate notification
-    let (bootstrap_notification_sender, bootstrap_notification_receiver) = oneshot::channel();
-    bootstrapper
-        .subscribe_to_bootstrap_notifications(bootstrap_notification_sender)
-        .unwrap();
-    verify_bootstrap_notification(bootstrap_notification_receiver);
-}
-
-#[tokio::test]
-async fn test_bootstrap_no_notification() {
-    // Create a driver configuration with a genesis waypoint
-    let driver_configuration = create_full_node_driver_configuration();
-
-    // Create the mock streaming client
-    let mut mock_streaming_client = create_mock_streaming_client();
-    let (_notification_sender, data_stream_listener) = create_data_stream_listener();
-    mock_streaming_client
-        .expect_get_all_epoch_ending_ledger_infos()
-        .with(eq(1))
-        .return_once(move |_| Ok(data_stream_listener));
-
-    // Create the bootstrapper
-    let mut bootstrapper = create_bootstrapper(driver_configuration, mock_streaming_client, true);
-
-    // Create a global data summary where epoch 0 and 1 have ended
-    let global_data_summary = create_global_summary(1);
-
-    // Subscribe to a bootstrapped notification
-    let (bootstrap_notification_sender, bootstrap_notification_receiver) = oneshot::channel();
-    bootstrapper
-        .subscribe_to_bootstrap_notifications(bootstrap_notification_sender)
-        .unwrap();
-
-    // Drive progress
-    drive_progress(&mut bootstrapper, &global_data_summary, false)
-        .await
-        .unwrap();
-
-    // Verify no notification
-    assert_none!(bootstrap_notification_receiver.now_or_never());
 }
 
 #[tokio::test]
@@ -1046,9 +976,4 @@ fn manipulate_verified_epoch_states(
             )
             .unwrap();
     }
-}
-
-/// Verifies that the receiver gets a successful notification
-fn verify_bootstrap_notification(notification_receiver: oneshot::Receiver<Result<(), Error>>) {
-    assert_ok!(notification_receiver.now_or_never().unwrap().unwrap());
 }

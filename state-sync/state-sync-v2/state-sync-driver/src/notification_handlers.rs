@@ -1,6 +1,7 @@
 // Copyright (c) Aptos
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::driver_client::{ClientNotification, ClientNotificationListener};
 use crate::{
     error::Error,
     logging::{LogEntry, LogSchema},
@@ -18,6 +19,7 @@ use consensus_notifications::{
 };
 use data_streaming_service::data_notification::NotificationId;
 use event_notifications::{EventNotificationSender, EventSubscriptionService};
+use futures::channel::oneshot;
 use futures::{channel::mpsc, stream::FusedStream, Stream};
 use mempool_notifications::MempoolNotificationSender;
 use serde::Serialize;
@@ -106,6 +108,63 @@ impl CommitNotification {
             .lock()
             .notify_events(latest_synced_version, events.clone())
             .map_err(|error| error.into())
+    }
+}
+
+/// A simple handler for client notifications
+pub struct ClientNotificationHandler {
+    // The listener for notifications from the client
+    client_listener: ClientNotificationListener,
+
+    // The channel used to notify a listener of successful bootstrapping
+    bootstrap_notifier_channel: Option<oneshot::Sender<Result<(), Error>>>,
+}
+
+impl ClientNotificationHandler {
+    pub fn new(client_listener: ClientNotificationListener) -> Self {
+        Self {
+            client_listener,
+            bootstrap_notifier_channel: None,
+        }
+    }
+
+    /// Subscribes the specified channel to bootstrap completion notifications
+    pub fn subscribe_to_bootstrap_notifications(
+        &mut self,
+        bootstrap_notifier_channel: oneshot::Sender<Result<(), Error>>,
+    ) -> Result<(), Error> {
+        if self.bootstrap_notifier_channel.is_some() {
+            panic!("Only one boostrap subscriber is supported at a time!");
+        }
+        self.bootstrap_notifier_channel = Some(bootstrap_notifier_channel);
+        Ok(())
+    }
+
+    /// Notifies any pending listeners that we've now bootstrapped
+    pub fn notify_listeners_of_bootstrapping(&mut self) -> Result<(), Error> {
+        if let Some(notifier_channel) = self.bootstrap_notifier_channel.take() {
+            if let Err(error) = notifier_channel.send(Ok(())) {
+                return Err(Error::CallbackSendFailed(format!(
+                    "Bootstrap notification error: {:?}",
+                    error
+                )));
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Stream for ClientNotificationHandler {
+    type Item = ClientNotification;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Pin::new(&mut self.get_mut().client_listener).poll_next(cx)
+    }
+}
+
+impl FusedStream for ClientNotificationHandler {
+    fn is_terminated(&self) -> bool {
+        self.client_listener.is_terminated()
     }
 }
 

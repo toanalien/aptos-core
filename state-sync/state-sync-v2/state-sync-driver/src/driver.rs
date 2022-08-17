@@ -1,10 +1,11 @@
 // Copyright (c) Aptos
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::notification_handlers::ClientNotificationHandler;
 use crate::{
     bootstrapper::Bootstrapper,
     continuous_syncer::ContinuousSyncer,
-    driver_client::{ClientNotificationListener, DriverNotification},
+    driver_client::ClientNotification,
     error::Error,
     logging::{LogEntry, LogSchema},
     metadata_storage::MetadataStorageInterface,
@@ -74,8 +75,8 @@ pub struct StateSyncDriver<
     // The component that manages the initial bootstrapping of the node
     bootstrapper: Bootstrapper<MetadataStorage, StorageSyncer, StreamingClient>,
 
-    // The listener for client notifications
-    client_notification_listener: ClientNotificationListener,
+    // The handler for notifications from the driver client
+    client_notification_handler: ClientNotificationHandler,
 
     // The listener for commit notifications
     commit_notification_listener: CommitNotificationListener,
@@ -121,7 +122,7 @@ impl<
     StateSyncDriver<DataClient, MempoolNotifier, MetadataStorage, StorageSyncer, StreamingClient>
 {
     pub fn new(
-        client_notification_listener: ClientNotificationListener,
+        client_notification_handler: ClientNotificationHandler,
         commit_notification_listener: CommitNotificationListener,
         consensus_notification_handler: ConsensusNotificationHandler,
         driver_configuration: DriverConfiguration,
@@ -150,7 +151,7 @@ impl<
 
         Self {
             bootstrapper,
-            client_notification_listener,
+            client_notification_handler,
             commit_notification_listener,
             consensus_notification_handler,
             continuous_syncer,
@@ -177,7 +178,7 @@ impl<
         self.start_time = Some(SystemTime::now());
         loop {
             ::futures::select! {
-                notification = self.client_notification_listener.select_next_some() => {
+                notification = self.client_notification_handler.select_next_some() => {
                     self.handle_client_notification(notification);
                 },
                 notification = self.commit_notification_listener.select_next_some() => {
@@ -355,7 +356,7 @@ impl<
     }
 
     /// Handles a client notification sent by the driver client
-    fn handle_client_notification(&mut self, notification: DriverNotification) {
+    fn handle_client_notification(&mut self, notification: ClientNotification) {
         debug!(LogSchema::new(LogEntry::ClientNotification)
             .message("Received a notify bootstrap notification from the client!"));
         metrics::increment_counter(
@@ -365,11 +366,11 @@ impl<
 
         // TODO(joshlind): refactor this if the client only supports one notification type!
         // Extract the bootstrap notifier channel
-        let DriverNotification::NotifyOnceBootstrapped(notifier_channel) = notification;
+        let ClientNotification::NotifyOnceBootstrapped(notifier_channel) = notification;
 
         // Subscribe the bootstrap notifier channel
         if let Err(error) = self
-            .bootstrapper
+            .client_notification_handler
             .subscribe_to_bootstrap_notifications(notifier_channel)
         {
             error!(LogSchema::new(LogEntry::ClientNotification)
@@ -430,6 +431,29 @@ impl<
                 error
             );
         };
+    }
+
+    /// Checks the progress of any bootstrap or sync requests and notifies
+    /// any pending listeners if the requests have been satified.
+    async fn check_bootstrap_or_sync_request_progress(&mut self) {
+        // Notify any pending clients that we've bootstrapped
+        if self.bootstrapper.is_bootstrapped() {
+            if let Err(error) = self
+                .client_notification_handler
+                .notify_listeners_of_bootstrapping()
+            {
+                error!(LogSchema::new(LogEntry::Driver)
+                    .error(&error)
+                    .message("Error found when notifying the clients of bootstrapping!"));
+            }
+        }
+
+        // Check the progress of any sync requests
+        if let Err(error) = self.check_sync_request_progress().await {
+            error!(LogSchema::new(LogEntry::Driver)
+                .error(&error)
+                .message("Error found when checking the sync request progress!"));
+        }
     }
 
     /// Checks if the node has successfully reached the sync target
@@ -521,6 +545,9 @@ impl<
 
     /// Checks that state sync is making progress
     async fn drive_progress(&mut self) {
+        // Check the progress of any bootstrap or sync requests
+        self.check_bootstrap_or_sync_request_progress().await;
+
         // Fetch the global data summary and verify we have active peers
         let global_data_summary = self.aptos_data_client.get_global_data_summary();
         if global_data_summary.is_empty() {
@@ -528,13 +555,6 @@ impl<
                 "The global data summary is empty! It's likely that we have no active peers."
             ));
             return self.check_auto_bootstrapping();
-        }
-
-        // Check the progress of any sync requests
-        if let Err(error) = self.check_sync_request_progress().await {
-            error!(LogSchema::new(LogEntry::Driver)
-                .error(&error)
-                .message("Error found when checking the sync request progress!"));
         }
 
         // If consensus is executing, there's nothing to do

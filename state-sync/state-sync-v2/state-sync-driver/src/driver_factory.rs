@@ -1,9 +1,10 @@
 // Copyright (c) Aptos
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::notification_handlers::ClientNotificationHandler;
 use crate::{
     driver::{DriverConfiguration, StateSyncDriver},
-    driver_client::{ClientNotificationListener, DriverClient, DriverNotification},
+    driver_client::{ClientNotification, ClientNotificationListener, DriverClient},
     metadata_storage::MetadataStorageInterface,
     notification_handlers::{
         CommitNotificationListener, ConsensusNotificationHandler, ErrorNotificationListener,
@@ -29,7 +30,7 @@ use tokio::runtime::{Builder, Runtime};
 
 /// Creates a new state sync driver and client
 pub struct DriverFactory {
-    client_notification_sender: mpsc::UnboundedSender<DriverNotification>,
+    client_notification_sender: mpsc::UnboundedSender<ClientNotification>,
     _driver_runtime: Option<Runtime>,
 }
 
@@ -67,10 +68,14 @@ impl DriverFactory {
             Err(error) => panic!("Failed to fetch the initial synced version: {:?}", error),
         }
 
-        // Create the notification handlers
+        // Create the client notification listener and handler
         let (client_notification_sender, client_notification_receiver) = mpsc::unbounded();
         let client_notification_listener =
             ClientNotificationListener::new(client_notification_receiver);
+        let client_notification_handler =
+            ClientNotificationHandler::new(client_notification_listener);
+
+        // Create various notification listeners and handlers
         let (commit_notification_sender, commit_notification_listener) =
             CommitNotificationListener::new();
         let consensus_notification_handler = ConsensusNotificationHandler::new(consensus_listener);
@@ -115,7 +120,7 @@ impl DriverFactory {
 
         // Create the state sync driver
         let state_sync_driver = StateSyncDriver::new(
-            client_notification_listener,
+            client_notification_handler,
             commit_notification_listener,
             consensus_notification_handler,
             driver_configuration,

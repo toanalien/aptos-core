@@ -14,17 +14,17 @@ use std::{
 };
 
 /// Notifications that can be sent to the state sync driver
-pub enum DriverNotification {
+pub enum ClientNotification {
     NotifyOnceBootstrapped(oneshot::Sender<Result<(), Error>>),
 }
 
 /// A client for sending notifications to the state sync driver
 pub struct DriverClient {
-    notification_sender: mpsc::UnboundedSender<DriverNotification>,
+    notification_sender: mpsc::UnboundedSender<ClientNotification>,
 }
 
 impl DriverClient {
-    pub fn new(notification_sender: mpsc::UnboundedSender<DriverNotification>) -> Self {
+    pub fn new(notification_sender: mpsc::UnboundedSender<ClientNotification>) -> Self {
         Self {
             notification_sender,
         }
@@ -37,7 +37,7 @@ impl DriverClient {
 
         async move {
             notification_sender
-                .send(DriverNotification::NotifyOnceBootstrapped(callback_sender))
+                .send(ClientNotification::NotifyOnceBootstrapped(callback_sender))
                 .await?;
             callback_receiver.await?
         }
@@ -47,11 +47,11 @@ impl DriverClient {
 /// A simple listener for client notifications
 pub struct ClientNotificationListener {
     // The listener for notifications from clients
-    client_notifications: mpsc::UnboundedReceiver<DriverNotification>,
+    client_notifications: mpsc::UnboundedReceiver<ClientNotification>,
 }
 
 impl ClientNotificationListener {
-    pub fn new(client_notifications: mpsc::UnboundedReceiver<DriverNotification>) -> Self {
+    pub fn new(client_notifications: mpsc::UnboundedReceiver<ClientNotification>) -> Self {
         Self {
             client_notifications,
         }
@@ -59,7 +59,7 @@ impl ClientNotificationListener {
 }
 
 impl Stream for ClientNotificationListener {
-    type Item = DriverNotification;
+    type Item = ClientNotification;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         Pin::new(&mut self.get_mut().client_notifications).poll_next(cx)

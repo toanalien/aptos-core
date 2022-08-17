@@ -48,7 +48,7 @@ async fn test_auto_bootstrapping() {
     driver_client.notify_once_bootstrapped().await.unwrap();
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_consensus_commit_notification() {
     // Create a driver for a full node
     let (_full_node_driver, consensus_notifier, _, _, _) = create_full_node_driver(None).await;
@@ -69,7 +69,7 @@ async fn test_consensus_commit_notification() {
     assert_err!(result);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_mempool_commit_notifications() {
     // Create a driver for a validator with a waypoint at version 0
     let subscription_event_key = EventKey::random();
@@ -110,7 +110,7 @@ async fn test_mempool_commit_notifications() {
     join_handle.await.unwrap();
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_reconfiguration_notifications() {
     // Create a driver for a validator with a waypoint at version 0
     let (validator_driver, consensus_notifier, mut mempool_listener, mut reconfig_listener, _) =
@@ -225,6 +225,9 @@ async fn create_driver_for_tests(
     ReconfigNotificationListener,
     EventNotificationListener,
 ) {
+    // Initialize the logger for tests
+    aptos_logger::Logger::init_for_testing();
+
     // Create test aptos database
     let db_path = aptos_temppath::TempPath::new();
     db_path.create_as_dir().unwrap();

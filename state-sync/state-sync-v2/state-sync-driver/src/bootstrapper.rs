@@ -29,7 +29,6 @@ use data_streaming_service::{
     data_stream::DataStreamListener,
     streaming_client::{DataStreamingClient, NotificationFeedback},
 };
-use futures::channel::oneshot;
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use storage_interface::DbReader;
 
@@ -281,9 +280,6 @@ pub struct Bootstrapper<MetadataStorage, StorageSyncer, StreamingClient> {
     // The currently active data stream (provided by the data streaming service)
     active_data_stream: Option<DataStreamListener>,
 
-    // The channel used to notify a listener of successful bootstrapping
-    bootstrap_notifier_channel: Option<oneshot::Sender<Result<(), Error>>>,
-
     // If the node has completed bootstrapping
     bootstrapped: bool,
 
@@ -333,7 +329,6 @@ impl<
         Self {
             state_value_syncer: StateValueSyncer::new(),
             active_data_stream: None,
-            bootstrap_notifier_channel: None,
             bootstrapped: false,
             driver_configuration,
             metadata_storage,
@@ -354,37 +349,10 @@ impl<
     pub fn bootstrapping_complete(&mut self) -> Result<(), Error> {
         info!(LogSchema::new(LogEntry::Bootstrapper)
             .message("The node has successfully bootstrapped!"));
+
         self.bootstrapped = true;
-        self.notify_listeners_if_bootstrapped()
-    }
-
-    /// Subscribes the specified channel to bootstrap completion notifications
-    pub fn subscribe_to_bootstrap_notifications(
-        &mut self,
-        bootstrap_notifier_channel: oneshot::Sender<Result<(), Error>>,
-    ) -> Result<(), Error> {
-        if self.bootstrap_notifier_channel.is_some() {
-            panic!("Only one boostrap subscriber is supported at a time!");
-        }
-
-        self.bootstrap_notifier_channel = Some(bootstrap_notifier_channel);
-        self.notify_listeners_if_bootstrapped()
-    }
-
-    /// Notifies any listeners if we've now bootstrapped
-    fn notify_listeners_if_bootstrapped(&mut self) -> Result<(), Error> {
-        if self.bootstrapped {
-            if let Some(notifier_channel) = self.bootstrap_notifier_channel.take() {
-                if let Err(error) = notifier_channel.send(Ok(())) {
-                    return Err(Error::CallbackSendFailed(format!(
-                        "Bootstrap notification error: {:?}",
-                        error
-                    )));
-                }
-            }
-            self.reset_active_stream();
-            self.storage_synchronizer.finish_chunk_executor(); // The bootstrapper is now complete
-        }
+        self.reset_active_stream();
+        self.storage_synchronizer.finish_chunk_executor(); // The bootstrapper is now complete
 
         Ok(())
     }
@@ -415,8 +383,7 @@ impl<
                 .await?;
         }
 
-        // Check if we've now bootstrapped
-        self.notify_listeners_if_bootstrapped()
+        Ok(())
     }
 
     /// Returns true iff the bootstrapper should continue to fetch epoch ending
