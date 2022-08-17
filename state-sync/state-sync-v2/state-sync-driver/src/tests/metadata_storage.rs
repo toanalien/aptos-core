@@ -97,6 +97,10 @@ fn test_metadata_schema_encode_decode() {
             snapshot_sync_completed: false,
         }),
     );
+    assert_encode_decode::<MetadataSchema>(
+        &MetadataKey::PendingSyncRequest,
+        &MetadataValue::PendingSyncRequest(create_ledger_info_at_version(12345)),
+    );
 }
 
 #[test]
@@ -145,7 +149,7 @@ fn test_multiple_reads_and_writes() {
 }
 
 #[test]
-fn test_writes_to_different_targets() {
+fn test_snapshot_writes_to_different_targets() {
     // Create a new metadata storage
     let tmp_dir = TempPath::new();
     let metadata_storage = PersistentMetadataStorage::new(tmp_dir.path());
@@ -163,5 +167,69 @@ fn test_writes_to_different_targets() {
     let target_ledger_info = create_ledger_info_at_version(200);
     metadata_storage
         .update_last_persisted_state_value_index(&target_ledger_info, 10101, false)
+        .unwrap_err();
+}
+
+#[test]
+fn test_sync_request_writes_to_different_targets() {
+    // Create a new metadata storage
+    let tmp_dir = TempPath::new();
+    let metadata_storage = PersistentMetadataStorage::new(tmp_dir.path());
+
+    // Verify the storage is empty
+    assert_none!(metadata_storage.pending_sync_request().unwrap());
+
+    // Test multiple overwrites
+    for i in 0..10 {
+        // Write a new sync request into the storage
+        let target_ledger_info = create_ledger_info_at_version(i);
+        metadata_storage
+            .new_sync_request(&target_ledger_info)
+            .unwrap();
+
+        // Fetch and verify the existing sync request
+        assert_eq!(
+            Some(target_ledger_info.clone()),
+            metadata_storage.pending_sync_request().unwrap()
+        );
+    }
+}
+
+#[test]
+fn test_sync_request_completion() {
+    // Create a new metadata storage
+    let tmp_dir = TempPath::new();
+    let metadata_storage = PersistentMetadataStorage::new(tmp_dir.path());
+
+    // Verify the storage is empty
+    assert_none!(metadata_storage.pending_sync_request().unwrap());
+
+    // Test writes, reads and deletion
+    for i in 0..10 {
+        // Write a new sync request into the storage
+        let target_ledger_info = create_ledger_info_at_version(i);
+        metadata_storage
+            .new_sync_request(&target_ledger_info)
+            .unwrap();
+
+        // Fetch and verify the existing sync request
+        assert_eq!(
+            Some(target_ledger_info.clone()),
+            metadata_storage.pending_sync_request().unwrap()
+        );
+
+        // Delete the existing sync request
+        metadata_storage
+            .completed_sync_request(&target_ledger_info)
+            .unwrap();
+
+        // Verify no existing sync request is found
+        assert_none!(metadata_storage.pending_sync_request().unwrap());
+    }
+
+    // Verify that trying to delete a non-existent sync request fails
+    let target_ledger_info = create_ledger_info_at_version(1234);
+    metadata_storage
+        .completed_sync_request(&target_ledger_info)
         .unwrap_err();
 }

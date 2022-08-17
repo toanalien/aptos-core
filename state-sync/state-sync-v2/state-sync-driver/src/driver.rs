@@ -102,6 +102,9 @@ pub struct StateSyncDriver<
     // The handler for notifications to mempool
     mempool_notification_handler: MempoolNotificationHandler<MempoolNotifier>,
 
+    // The storage to write metadata about the syncing progress
+    metadata_storage: MetadataStorage,
+
     // The timestamp at which the driver started executing
     start_time: Option<SystemTime>,
 
@@ -137,7 +140,7 @@ impl<
     ) -> Self {
         let bootstrapper = Bootstrapper::new(
             driver_configuration.clone(),
-            metadata_storage,
+            metadata_storage.clone(),
             streaming_client.clone(),
             storage.clone(),
             storage_synchronizer.clone(),
@@ -160,6 +163,7 @@ impl<
             error_notification_listener,
             event_subscription_service,
             mempool_notification_handler,
+            metadata_storage,
             start_time: None,
             storage,
             storage_synchronizer,
@@ -357,25 +361,55 @@ impl<
 
     /// Handles a client notification sent by the driver client
     fn handle_client_notification(&mut self, notification: ClientNotification) {
-        debug!(LogSchema::new(LogEntry::ClientNotification)
-            .message("Received a notify bootstrap notification from the client!"));
-        metrics::increment_counter(
-            &metrics::DRIVER_COUNTERS,
-            metrics::DRIVER_CLIENT_NOTIFICATION,
-        );
+        match notification {
+            ClientNotification::NotifyOnceBootstrapped(notifier_channel) => {
+                // Received a notification request for bootstrapping
+                debug!(LogSchema::new(LogEntry::ClientBootstrapNotification)
+                    .message("Received a notify bootstrap notification from the client!"));
+                metrics::increment_counter(
+                    &metrics::DRIVER_COUNTERS,
+                    metrics::DRIVER_CLIENT_BOOTSTRAP_NOTIFICATION,
+                );
 
-        // TODO(joshlind): refactor this if the client only supports one notification type!
-        // Extract the bootstrap notifier channel
-        let ClientNotification::NotifyOnceBootstrapped(notifier_channel) = notification;
+                // Subscribe the notifier channel to receive a bootstrap notification
+                if let Err(error) = self
+                    .client_notification_handler
+                    .subscribe_to_bootstrap_notifications(notifier_channel)
+                {
+                    error!(LogSchema::new(LogEntry::ClientBootstrapNotification)
+                        .error(&error)
+                        .message("Failed to subscribe to bootstrap notifications!"));
+                }
+            }
+            ClientNotification::NotifyOnceRecovered(_notifier_channel) => {
+                // Received a notification request for recovery
+                debug!(LogSchema::new(LogEntry::ClientRecoverNotification)
+                    .message("Received a notify recover notification from the client!"));
+                metrics::increment_counter(
+                    &metrics::DRIVER_COUNTERS,
+                    metrics::DRIVER_CLIENT_RECOVER_NOTIFICATION,
+                );
 
-        // Subscribe the bootstrap notifier channel
-        if let Err(error) = self
-            .client_notification_handler
-            .subscribe_to_bootstrap_notifications(notifier_channel)
-        {
-            error!(LogSchema::new(LogEntry::ClientNotification)
-                .error(&error)
-                .message("Failed to subscribe to bootstrap notifications!"));
+                // Fetch the recovery target
+                let recovery_target = match self.metadata_storage.previous_snapshot_sync_target() {
+                    Ok(Some(recovery_target)) => recovery_target,
+                    Ok(None) => {
+                        return
+                    }
+                }
+
+                // Subscribe the notifier channel to receive a recovered notification
+                if let Err(error) = self
+                    .client_notification_handler
+                    .subscribe_to_bootstrap_notifications(notifier_channel)
+                {
+                    error!(LogSchema::new(LogEntry::ClientBootstrapNotification)
+                        .error(&error)
+                        .message("Failed to subscribe to bootstrap notifications!"));
+                }
+
+                unimplemented!();
+            }
         }
     }
 
