@@ -533,11 +533,11 @@ export class AptosClient {
   async generateRawTransaction(
     accountFrom: HexString,
     payload: TxnBuilderTypes.TransactionPayload,
-    extraArgs?: { maxGasAmount?: BCS.Uint64; gastUnitPrice?: BCS.Uint64; expireTimestamp?: BCS.Uint64 },
+    extraArgs?: { maxGasAmount?: BCS.Uint64; gasUnitPrice?: BCS.Uint64; expireTimestamp?: BCS.Uint64 },
   ): Promise<TxnBuilderTypes.RawTransaction> {
-    const { maxGasAmount, gastUnitPrice, expireTimestamp } = {
+    const { maxGasAmount, gasUnitPrice, expireTimestamp } = {
       maxGasAmount: 2000n,
-      gastUnitPrice: 1n,
+      gasUnitPrice: 1n,
       expireTimestamp: BigInt(Math.floor(Date.now() / 1000) + 20),
       ...extraArgs,
     };
@@ -552,9 +552,40 @@ export class AptosClient {
       BigInt(sequenceNumber),
       payload,
       maxGasAmount,
-      gastUnitPrice,
+      gasUnitPrice,
       expireTimestamp,
       new TxnBuilderTypes.ChainId(chainId),
     );
+  }
+
+  /**
+   * Generate, submit, and wait for a transaction to transfer AptosCoin from
+   * one account to another.
+   */
+  async transferCoins(
+    from: AptosAccount,
+    to: AptosAccount,
+    amount: number | bigint,
+    extraArgs?: { coinType?: string },
+  ): Promise<void> {
+    const aptosCoin = new TxnBuilderTypes.TypeTagStruct(
+      TxnBuilderTypes.StructTag.fromString(extraArgs?.coinType ?? "0x1::aptos_coin::AptosCoin"),
+    );
+    const payload = new TxnBuilderTypes.TransactionPayloadEntryFunction(
+      TxnBuilderTypes.EntryFunction.natural(
+        // Fully qualified module name, `AccountAddress::ModuleName`
+        "0x1::coin",
+        // Module function
+        "transfer",
+        // The coin type to transfer
+        [aptosCoin],
+        // Arguments for function `transfer`: receiver account address and amount to transfer
+        [BCS.bcsToBytes(TxnBuilderTypes.AccountAddress.fromHex(to.address())), BCS.bcsSerializeUint64(amount)],
+      ),
+    );
+    const rawTransaction = await this.generateRawTransaction(from.address(), payload);
+    const transaction = AptosClient.generateBCSTransaction(from, rawTransaction);
+    const transactionRes = await this.submitSignedBCSTransaction(transaction);
+    await this.waitForTransaction(transactionRes.hash);
   }
 }

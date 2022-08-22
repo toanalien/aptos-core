@@ -460,3 +460,23 @@ test(
   },
   30 * 1000,
 );
+
+test(
+  "transferCoins works",
+  async () => {
+    const client = new AptosClient(NODE_URL);
+    const faucetClient = new FaucetClient(NODE_URL, FAUCET_URL);
+
+    const alice = new AptosAccount();
+    const bob = new AptosAccount();
+    await faucetClient.fundAccount(alice.address(), 50000);
+    await faucetClient.fundAccount(bob.address(), 0);
+
+    await client.transferCoins(alice, bob, 42);
+
+    let resources = await client.getAccountResources(bob.address());
+    let accountResource = resources.find((r) => r.type === aptosCoin);
+    expect((accountResource!.data as any).coin.value).toBe("42");
+  },
+  30 * 1000,
+);

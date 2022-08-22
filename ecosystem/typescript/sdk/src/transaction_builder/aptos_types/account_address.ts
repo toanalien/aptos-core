@@ -52,4 +52,8 @@ export class AccountAddress {
   static deserialize(deserializer: Deserializer): AccountAddress {
     return new AccountAddress(deserializer.deserializeFixedBytes(AccountAddress.LENGTH));
   }
+
+  static ONE = new AccountAddress(
+    new Uint8Array(AccountAddress.LENGTH).fill(0).fill(1, AccountAddress.LENGTH - 1, AccountAddress.LENGTH),
+  );
 }

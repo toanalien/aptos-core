@@ -148,11 +148,7 @@ const sidebars = {
       collapsible: true,
       collapsed: true,
       items: [
-        {
-          type: "link",
-          label: "Typescript SDK",
-          href: "https://aptos-labs.github.io/ts-sdk-doc/",
-        },
+        "sdks/typescript-sdk",
         "sdks/aptos-sdk-overview",
         "sdks/transactions-with-ts-sdk",
         "sdks/python-sdk",

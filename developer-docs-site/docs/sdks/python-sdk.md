@@ -5,7 +5,7 @@ slug: "python-sdk"
 
 # Aptos Python SDK
 
-Aptos has an officially, lightly maintained Python SDK. It is available on [PyPi](https://pypi.org/project/aptos-sdk/) with the source code in the [Aptos-core github repository](https://github.com/aptos-labs/aptos-core/tree/main/ecosystem/python/sdk). Much of the functionality mirrors our [Typescript SDK](transactions-with-ts-sdk). The primary purpose of this SDK is to help Python developers quickly acclimate to Aptos and as an accompaniment to our tutorials.
+Aptos has an officially, lightly maintained Python SDK. It is available on [PyPi](https://pypi.org/project/aptos-sdk/) with the source code in the [aptos-core GitHub repository](https://github.com/aptos-labs/aptos-core/tree/main/ecosystem/python/sdk). Much of the functionality mirrors our [Typescript SDK](transactions-with-ts-sdk). The primary purpose of this SDK is to help Python developers quickly acclimate to Aptos and as an accompaniment to our tutorials.
 
 The Python SDK can either be installed via `pip`, from source, or embedded:
 
