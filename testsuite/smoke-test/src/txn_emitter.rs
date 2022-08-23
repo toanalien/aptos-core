@@ -4,7 +4,7 @@
 use crate::smoke_test_environment::new_local_swarm_with_aptos;
 use anyhow::ensure;
 use aptos_sdk::{transaction_builder::TransactionFactory, types::PeerId};
-use forge::{EmitJobRequest, NodeExt, Result, Swarm, TxnEmitter, TxnStats};
+use forge::{EmitJobMode, EmitJobRequest, NodeExt, Result, Swarm, TxnEmitter, TxnStats};
 use rand::{rngs::OsRng, SeedableRng};
 use std::time::Duration;
 use tokio::runtime::Builder;
@@ -37,7 +37,6 @@ pub async fn generate_traffic(
     let transaction_factory = TransactionFactory::new(chain_info.chain_id).with_gas_unit_price(1);
     let mut emitter = TxnEmitter::new(
         chain_info.root_account,
-        // TODO: swap this with a random client
         all_node_clients[0].clone(),
         transaction_factory,
         rng,
@@ -46,7 +45,8 @@ pub async fn generate_traffic(
     emit_job_request = emit_job_request
         .rest_clients(all_node_clients)
         .gas_price(gas_price)
-        .duration(duration);
+        .duration(duration)
+        .mode(EmitJobMode::FixedTps { tps: 20 });
     let stats = emitter.emit_txn_for(emit_job_request).await?;
 
     Ok(stats)

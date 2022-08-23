@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{
-    emitter::{MAX_TXNS, MAX_TXN_BATCH_SIZE, RETRY_POLICY, SEND_AMOUNT},
-    query_sequence_numbers, EmitJobRequest,
+    emitter::{MAX_TXNS, RETRY_POLICY, SEND_AMOUNT},
+    query_sequence_numbers, EmitJobRequest, EmitModeParams,
 };
 use anyhow::{format_err, Result};
 use aptos::common::types::EncodingType;
@@ -63,6 +63,7 @@ impl<'t> AccountMinter<'t> {
     pub async fn mint_accounts(
         &mut self,
         req: &EmitJobRequest,
+        mode_params: &EmitModeParams,
         total_requested_accounts: usize,
     ) -> Result<Vec<LocalAccount>> {
         let mut accounts = vec![];
@@ -84,6 +85,7 @@ impl<'t> AccountMinter<'t> {
                 &req.rest_clients,
                 expected_num_seed_accounts,
                 coins_per_seed_account,
+                mode_params.max_submit_batch_size,
                 req.reuse_accounts,
             )
             .await?;
@@ -113,7 +115,7 @@ impl<'t> AccountMinter<'t> {
                     seed_account,
                     num_new_child_accounts,
                     coins_per_account,
-                    20,
+                    mode_params.max_submit_batch_size,
                     cur_client,
                     &txn_factory,
                     req.reuse_accounts,
@@ -148,6 +150,7 @@ impl<'t> AccountMinter<'t> {
         rest_clients: &[RestClient],
         seed_account_num: usize,
         coins_per_seed_account: u64,
+        max_submit_batch_size: usize,
         vasp: bool,
     ) -> Result<Vec<LocalAccount>> {
         info!("Creating and minting seeds accounts");
@@ -166,7 +169,7 @@ impl<'t> AccountMinter<'t> {
         }
         while i < seed_account_num {
             let client = self.pick_mint_client(rest_clients).clone();
-            let batch_size = min(MAX_TXN_BATCH_SIZE, seed_account_num - i);
+            let batch_size = min(max_submit_batch_size, seed_account_num - i);
             let mut rng = StdRng::from_rng(self.rng()).unwrap();
             let mut batch = gen_random_accounts(batch_size, &mut rng);
             let creation_account = &mut self.root_account;
@@ -202,7 +205,7 @@ impl<'t> AccountMinter<'t> {
             .unwrap();
         let account_key = AccountKey::from_private_key(mint_key);
         let address = account_key.authentication_key().derived_address();
-        let sequence_number = query_sequence_numbers(client, &[address])
+        let sequence_number = query_sequence_numbers(client, [address].iter())
             .await
             .map_err(|e| {
                 format_err!(
@@ -248,7 +251,7 @@ async fn create_and_fund_new_accounts<R>(
     mut source_account: LocalAccount,
     num_new_accounts: usize,
     coins_per_new_account: u64,
-    max_num_accounts_per_batch: u64,
+    max_num_accounts_per_batch: usize,
     client: RestClient,
     txn_factory: &TransactionFactory,
     reuse_account: bool,
@@ -260,10 +263,7 @@ where
     let mut i = 0;
     let mut accounts = vec![];
     while i < num_new_accounts {
-        let batch_size = min(
-            max_num_accounts_per_batch as usize,
-            min(MAX_TXN_BATCH_SIZE, num_new_accounts - i),
-        );
+        let batch_size = min(max_num_accounts_per_batch, num_new_accounts - i);
         let mut batch = if reuse_account {
             info!("Loading {} accounts if they exist", batch_size);
             gen_reusable_accounts(&client, batch_size, &mut rng).await?
@@ -314,7 +314,7 @@ where
 {
     let account_key = AccountKey::generate(rng);
     let address = account_key.authentication_key().derived_address();
-    let sequence_number = match query_sequence_numbers(client, &[address]).await {
+    let sequence_number = match query_sequence_numbers(client, [address].iter()).await {
         Ok(v) => v[0],
         Err(_) => 0,
     };
