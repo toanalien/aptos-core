@@ -4,6 +4,7 @@
 use crate::{
     auth, context::Context, custom_event, error::ServiceError, log_ingest, prometheus_push_metrics,
 };
+use aptos_logger::debug;
 use std::convert::Infallible;
 use warp::{
     body::BodyDeserializeError,
@@ -66,6 +67,8 @@ pub async fn handle_rejection(err: Rejection) -> std::result::Result<impl Reply,
             format!("unexpected error: {:?}", err),
         ));
     }
+
+    debug!("returning an error with status code {}: {:?}", code, err);
 
     Ok(reply::with_status(body, code).into_response())
 }
