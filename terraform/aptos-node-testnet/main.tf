@@ -23,6 +23,8 @@ locals {
 module "validator" {
   source = "../aptos-node/aws"
 
+  maximize_single_az_capacity = var.maximize_single_az_capacity
+
   region   = var.region
   iam_path = var.iam_path
   zone_id  = var.zone_id
@@ -36,6 +38,8 @@ module "validator" {
 
   # if forge enabled, standardize the helm release name for ease of operations
   helm_release_name_override = var.enable_forge ? "aptos-node" : ""
+  # Forge testing does not require calico for validator NetworkPolicies
+  enable_calico = !var.enable_forge
 
   k8s_api_sources = var.admin_sources_ipv4
   k8s_admin_roles = var.k8s_admin_roles

@@ -4,6 +4,11 @@ variable "region" {
   description = "AWS region"
 }
 
+variable "maximize_single_az_capacity" {
+  description = "TEST ONLY: Whether to maximize the capacity of the cluster by allocating a large CIDR block to the first AZ"
+  default     = false
+}
+
 variable "zone_id" {
   description = "Route53 Zone ID to create records in"
   default     = ""
